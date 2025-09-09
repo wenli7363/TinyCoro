@@ -1,9 +1,9 @@
 /**
  * @file task.hpp
- * @author JiahuiWang
+ * @author jaye chen
  * @brief lab1
  * @version 1.1
- * @date 2025-03-26
+ * @date 2025-09-08
  *
  * @copyright Copyright (c) 2025
  *
@@ -45,17 +45,41 @@ namespace detail
 {
 struct promise_base
 {
+public:
+    using coroutine_handle = std::coroutine_handle<>;
+    
     promise_base() noexcept = default;
     ~promise_base()         = default;
 
     constexpr auto initial_suspend() noexcept { return std::suspend_always{}; }
 
-    [[CORO_TEST_USED(lab1)]] auto final_suspend() noexcept -> std::suspend_always
+
+    [[CORO_TEST_USED(lab1)]] auto final_suspend() noexcept -> auto
     {
         // TODO[lab1]: Add you codes
-        // Return suspend_always is incorrect,
-        // so you should modify the return type and define new awaiter to return
-        return {};
+        // 当前协程执行完毕，如果下一个应该执行的m_coroutine存在，则resume
+        return final_awaiter{};
+    }
+
+    auto set_continuation(coroutine_handle coroutine) noexcept -> void
+    {
+        m_coroutine = coroutine;
+    }
+
+    auto get_continuation() noexcept -> coroutine_handle
+    {
+        return m_coroutine;
+    }
+
+    auto is_detached() const noexcept -> bool
+    {
+        return m_is_detached;
+    }
+
+    auto set_detached(bool detached) noexcept -> void
+    {
+        m_coroutine = nullptr;
+        m_is_detached = detached;
     }
 
 #ifdef ENABLE_MEMORY_ALLOC
@@ -74,8 +98,41 @@ struct promise_base
 public:
     int promise_id{0};
 #endif // DEBUG
+
+protected:
+    coroutine_handle m_coroutine{nullptr};  // 下个协程句柄
+    bool m_is_detached{false};              // detach状态标志
+
+private:
+    struct final_awaiter
+    {
+        bool await_ready() const noexcept
+        {
+            return false;  // 总是挂起
+        }
+
+        void await_suspend(std::coroutine_handle<> current_coroutine) noexcept
+        {
+            // 从当前协程的 promise 中获取父协程句柄
+            auto specific_handle = std::coroutine_handle<promise_base>::from_address(current_coroutine.address());
+            auto& promise = specific_handle.promise();
+            
+            if (promise.m_coroutine)
+            {
+                // 恢复父协程
+                promise.m_coroutine.resume();
+            }
+            // 如果没有父协程，协程就结束了
+        }
+
+        void await_resume() noexcept
+        {
+            // final_suspend 不需要返回值
+        }
+    };
 };
 
+// return_type的特化版本
 template<typename return_type>
 struct promise final : public promise_base, public container<return_type>
 {
@@ -99,14 +156,18 @@ public:
     promise& operator=(promise&& other) = delete;
     ~promise()                          = default;
 
+    // 创建并返回对应的task对象
     auto get_return_object() noexcept -> task_type;
 
+    // 处理未处理的异常
     auto unhandled_exception() noexcept -> void
     {
         this->set_exception();
     }
 };
 
+
+// void的特化版本
 template<>
 struct promise<void> : public promise_base
 {
@@ -133,6 +194,7 @@ struct promise<void> : public promise_base
     {
     }
 
+    // 存储异常
     auto unhandled_exception() noexcept -> void
     {
         m_exception_ptr = std::current_exception();
@@ -152,6 +214,7 @@ private:
 
 } // namespace detail
 
+// return_type的特化版本 TASK模板
 template<typename return_type>
 class [[CORO_AWAIT_HINT]] task
 {
@@ -164,21 +227,28 @@ public:
     {
         awaitable_base(coroutine_handle coroutine) noexcept : m_coroutine(coroutine) {}
 
+        // 如果m_coroutine为空或已经完成，则返回true
         auto await_ready() const noexcept -> bool { return !m_coroutine || m_coroutine.done(); }
 
         auto await_suspend(std::coroutine_handle<> awaiting_coroutine) noexcept -> std::coroutine_handle<>
         {
             // TODO[lab1]: Add you codes
-            return m_coroutine;
+            // 暂停当前协程(awaiting_coroutine)，并返回新的协程句柄(m_coroutine)
+            m_coroutine.promise().set_continuation(awaiting_coroutine);    // 把task1的协程句柄存入task2的promise中
+            return m_coroutine;    // 返回task2的协程句柄
         }
 
-        std::coroutine_handle<promise_type> m_coroutine{nullptr};
+        std::coroutine_handle<promise_type> m_coroutine{nullptr};   // 注意这里是task2的协程句柄
     };
 
+    // 默认构造函数
     task() noexcept : m_coroutine(nullptr) {}
 
+    // 显式构造函数
     explicit task(coroutine_handle handle) : m_coroutine(handle) {}
+    // 禁用拷贝构造函数
     task(const task&) = delete;
+    // 移动构造函数
     task(task&& other) noexcept : m_coroutine(std::exchange(other.m_coroutine, nullptr)) {}
 
     ~task()
@@ -189,8 +259,10 @@ public:
         }
     }
 
+    // 禁用拷贝赋值运算符
     auto operator=(const task&) -> task& = delete;
 
+    // 移动赋值运算符
     auto operator=(task&& other) noexcept -> task&
     {
         if (std::addressof(other) != this)
@@ -234,16 +306,22 @@ public:
 
     [[CORO_TEST_USED(lab1)]] auto detach() -> void
     {
-        // TODO[lab1]: Add you codes
+        if (m_coroutine != nullptr)
+        {
+            m_coroutine.promise().set_detached(true);
+        }
+        m_coroutine = nullptr;
     }
 
     auto operator co_await() const& noexcept
     {
+        // 定义一个awaitable类，继承自awaitable_base
         struct awaitable : public awaitable_base
         {
             auto await_resume() -> decltype(auto) { return this->m_coroutine.promise().result(); }
         };
 
+        // co_await操作符这里只获取一个awaitable对象，并返回
         return awaitable{m_coroutine};
     }
 
@@ -265,7 +343,7 @@ public:
     auto handle() && -> coroutine_handle { return std::exchange(m_coroutine, nullptr); }
 
 private:
-    coroutine_handle m_coroutine{nullptr};
+    coroutine_handle m_coroutine{nullptr};  // 协程句柄
 };
 
 using coroutine_handle = std::coroutine_handle<detail::promise_base>;
@@ -277,8 +355,19 @@ using coroutine_handle = std::coroutine_handle<detail::promise_base>;
  */
 [[CORO_TEST_USED(lab1)]] inline auto clean(std::coroutine_handle<> handle) noexcept -> void
 {
-    // TODO[lab1]: Add you codes
+    if (handle != nullptr)
+    {
+        // 将通用句柄转换为promise_base句柄来访问is_detached方法
+        auto specific_handle = std::coroutine_handle<detail::promise_base>::from_address(handle.address());
+        auto& promise = specific_handle.promise();
+        
+        if (promise.is_detached())
+        {
+            handle.destroy();
+        }
+    }
 }
+
 
 namespace detail
 {

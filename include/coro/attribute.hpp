@@ -3,6 +3,7 @@
 #include "config.h"
 
 // This is a GCC extension; define it only for GCC and compilers that emulate GCC.
+// 针对GCC的优化宏定义, 如果编译器是GCC且不是clang, 则定义CORO_ATTR和CORO_INLINE
 #if defined(__GNUC__) && !defined(__clang__)
     #define CORO_ATTR(attr) __attribute__((attr))
     #define CORO_INLINE     __attribute__((always_inline))
