@@ -28,7 +28,7 @@ class context;
 };
 
 /**
- * @brief Welcome to tinycoro lab2a, in this part you will build the heart of tinycoro����engine by
+ * @brief Welcome to tinycoro lab2a, in this part you will build the heart of tinycoro����engine by
  * modifing engine.hpp and engine.cpp, please ensure you have read the document of lab2a.
  *
  * @warning You should carefully consider whether each implementation should be thread-safe.
@@ -48,9 +48,9 @@ using std::array;
 using std::atomic;
 using std::coroutine_handle;
 using std::queue;
-using uring::urcptr;
-using uring::uring_proxy;
-using uring::ursptr;
+using uring::urcptr;    // uring cqe entry指针
+using uring::uring_proxy;   // uring代理
+using uring::ursptr;   // uring sqe entry指针
 
 template<typename T>
 // multi producer and multi consumer queue
@@ -58,7 +58,7 @@ using mpmc_queue = AtomicQueue<T>;
 
 class engine
 {
-    friend class ::coro::context;
+    friend class ::coro::context;   // 协程上下文
 
 public:
     engine() noexcept { m_id = ginfo.engine_id.fetch_add(1, std::memory_order_relaxed); }
@@ -168,8 +168,8 @@ public:
     // TODO[lab2a]: Add more function if you need
 
 private:
-    uint32_t    m_id;
-    uring_proxy m_upxy;
+    uint32_t    m_id;   // 引擎ID
+    uring_proxy m_upxy;   // uring代理
 
     // store task handle
     mpmc_queue<coroutine_handle<>> m_task_queue; // You can replace it with another data structure
@@ -182,7 +182,7 @@ private:
 
 /**
  * @brief return local thread engine
- *
+ * 返回当前线程的引擎
  * @return engine&
  */
 inline engine& local_engine() noexcept
