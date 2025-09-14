@@ -172,12 +172,15 @@ private:
     uring_proxy m_upxy;   // uring代理
 
     // store task handle
+    // 任务队列，用于存储待执行的任务
     mpmc_queue<coroutine_handle<>> m_task_queue; // You can replace it with another data structure
 
     // used to fetch cqe entry
-    array<urcptr, config::kQueCap> m_urc;
+    array<urcptr, config::kQueCap> m_urc;  // 预分配的m_urc数组，用于存储批量获取的CQE条目
 
     // TODO[lab2a]: Add more member variables if you need
+    size_t m_num_io_wait_submit{0};   // 待提交IO任务数量
+    size_t m_num_io_running{0};       // 运行中IO任务数量
 };
 
 /**
@@ -187,7 +190,7 @@ private:
  */
 inline engine& local_engine() noexcept
 {
-    return *linfo.egn;
+    return *linfo.egn; // 返回当前线程的引擎
 }
 
 }; // namespace coro::detail
