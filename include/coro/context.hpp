@@ -50,6 +50,7 @@ using detail::ginfo;
 using detail::linfo;
 
 using engine = detail::engine;
+using stop_cb = std::function<void()>;   // context停止回调函数类型
 
 class scheduler;
 
@@ -90,6 +91,7 @@ public:
      */
     inline auto join() noexcept -> void { m_job->join(); }
 
+    // 三种submit_task的重载
     inline auto submit_task(task<void>&& task) noexcept -> void
     {
         auto handle = task.handle();
@@ -137,18 +139,23 @@ public:
     [[CORO_TEST_USED(lab2b)]] auto run(stop_token token) noexcept -> void;
 
     // TODO[lab2b]: Add more function if you need
+    inline auto set_stop_cb(stop_cb cb) noexcept -> void{
+        m_stop_cb = cb;
+    }
 
 private:
-    CORO_ALIGN engine   m_engine;
-    unique_ptr<jthread> m_job;
-    ctx_id              m_id;
+    CORO_ALIGN engine   m_engine;   // 引擎
+    unique_ptr<jthread> m_job;   // 工作线程
+    ctx_id              m_id;   // 上下文ID
 
     // TODO[lab2b]: Add more member variables if you need
+    stop_cb m_stop_cb;   // context停止回调函数
+    std::atomic<size_t> m_ref_count{0};  // 引用计数，跟踪等待的任务数量
 };
 
 inline context& local_context() noexcept
 {
-    return *linfo.ctx;
+    return *linfo.ctx;   // 返回当前线程的上下文
 }
 
 inline void submit_to_context(task<void>&& task) noexcept
